@@ -1,0 +1,109 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+enum Role {
+  admin
+  driver
+}
+
+model User {
+  id           String       @id @default(cuid())
+  username     String       @unique
+  password     String
+  name         String
+  role         Role
+  activeJobs   Job[]        @relation("ActiveJobsDriver")
+  completedJobs Job[]       @relation("CompletedJobsDriver")
+  fuelEntries  FuelEntry[]
+  mileageEntries MileageEntry[]
+  issueReports IssueReport[]
+}
+
+model Contract {
+  id    String @id @default(cuid())
+  name  String @unique
+  sites Site[]
+  jobs  Job[]
+  reports IssueReport[]
+}
+
+model Site {
+  id         String   @id @default(cuid())
+  name       String
+  siteType   String   @default("both")
+  contractId String
+  contract   Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+}
+
+model Job {
+  id                    String   @id @default(cuid())
+  status                String
+  contractId            String
+  contract              Contract @relation(fields: [contractId], references: [id], onDelete: Restrict)
+  reg                   String
+  date                  String
+  completedDate         String?
+  collectionSite        String
+  destinationSite       String?
+  jobRef                String
+  arrivalTime           String
+  exitTime              String?
+  completeArrivalTime   String?
+  completeDepartureTime String?
+  completeJobRef        String?
+  collectionReference   String?
+  costingType           String?
+  costingPrice          String?
+  costingWeight         String?
+  costingTotal          String?
+  notes                 String?
+  destinationNotes      String?
+  driverId              String
+  driver                User     @relation("ActiveJobsDriver", fields: [driverId], references: [id], onDelete: Restrict)
+  completedDriverId     String?
+  completedDriver       User?    @relation("CompletedJobsDriver", fields: [completedDriverId], references: [id], onDelete: Restrict)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+model FuelEntry {
+  id        String   @id @default(cuid())
+  type      String
+  litres    String
+  reg       String
+  date      String
+  driverId  String
+  driver    User     @relation(fields: [driverId], references: [id], onDelete: Restrict)
+  createdAt DateTime @default(now())
+}
+
+model MileageEntry {
+  id             String   @id @default(cuid())
+  date           String
+  reg            String
+  openingMileage String?
+  closingMileage String?
+  driverId       String
+  driver         User     @relation(fields: [driverId], references: [id], onDelete: Restrict)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([driverId, date])
+}
+
+model IssueReport {
+  id         String   @id @default(cuid())
+  text       String
+  reg        String
+  date       String
+  contractId String
+  contract   Contract @relation(fields: [contractId], references: [id], onDelete: Restrict)
+  driverId   String
+  driver     User     @relation(fields: [driverId], references: [id], onDelete: Restrict)
+  createdAt  DateTime @default(now())
+}
