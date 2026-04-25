@@ -46,33 +46,6 @@ export async function ensurePortalSeeded() {
 export async function getPortalData(): Promise<PortalData> {
   await ensurePortalSeeded();
 
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS "MileageEntry" (
-      "id" TEXT PRIMARY KEY,
-      "date" TEXT NOT NULL,
-      "reg" TEXT NOT NULL,
-      "openingMileage" TEXT,
-      "closingMileage" TEXT,
-      "driverId" TEXT NOT NULL,
-      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY ("driverId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE
-    )
-  `);
-  await prisma.$executeRawUnsafe(
-    'CREATE UNIQUE INDEX IF NOT EXISTS "MileageEntry_driverId_date_key" ON "MileageEntry"("driverId", "date")'
-  );
-
-  type RawMileageEntry = {
-    id: string;
-    date: string;
-    reg: string;
-    openingMileage: string | null;
-    closingMileage: string | null;
-    driverUsername: string;
-    driverName: string;
-  };
-
   const [users, contracts, activeJobs, semiCompletedJobs, completedJobs, fuelEntries, mileageEntries, issueReports] = await Promise.all([
     prisma.user.findMany({ orderBy: [{ role: "asc" }, { name: "asc" }] }),
     prisma.contract.findMany({ include: { sites: { orderBy: { name: "asc" } } }, orderBy: { name: "asc" } }),
@@ -92,19 +65,7 @@ export async function getPortalData(): Promise<PortalData> {
       orderBy: { updatedAt: "desc" },
     }),
     prisma.fuelEntry.findMany({ include: { driver: true }, orderBy: { createdAt: "desc" } }),
-    prisma.$queryRaw<RawMileageEntry[]>`
-      SELECT
-        m."id",
-        m."date",
-        m."reg",
-        m."openingMileage",
-        m."closingMileage",
-        u."username" AS "driverUsername",
-        u."name" AS "driverName"
-      FROM "MileageEntry" m
-      INNER JOIN "User" u ON u."id" = m."driverId"
-      ORDER BY m."date" DESC
-    `,
+    prisma.mileageEntry.findMany({ include: { driver: true }, orderBy: { date: "desc" } }),
     prisma.issueReport.findMany({ include: { driver: true, contract: true }, orderBy: { createdAt: "desc" } }),
   ]);
 
@@ -228,8 +189,8 @@ export async function getPortalData(): Promise<PortalData> {
       reg: entry.reg,
       openingMileage: entry.openingMileage ?? undefined,
       closingMileage: entry.closingMileage ?? undefined,
-      driverUsername: entry.driverUsername,
-      driverName: entry.driverName,
+      driverUsername: entry.driver.username,
+      driverName: entry.driver.name,
     })),
     issueReports: issueReports.map((report) => ({
       id: report.id,

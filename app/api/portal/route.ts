@@ -12,25 +12,6 @@ function getSiteTypeFromBody(value: unknown) {
   return normalizeSiteType(String(value || "both"));
 }
 
-async function ensureMileageTable() {
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS "MileageEntry" (
-      "id" TEXT PRIMARY KEY,
-      "date" TEXT NOT NULL,
-      "reg" TEXT NOT NULL,
-      "openingMileage" TEXT,
-      "closingMileage" TEXT,
-      "driverId" TEXT NOT NULL,
-      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY ("driverId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE
-    )
-  `);
-  await prisma.$executeRawUnsafe(
-    'CREATE UNIQUE INDEX IF NOT EXISTS "MileageEntry_driverId_date_key" ON "MileageEntry"("driverId", "date")'
-  );
-}
-
 export async function GET() {
   try {
     const data = await getPortalData();
@@ -78,18 +59,18 @@ export async function POST(request: Request) {
         }
 
         const isJJWard = normalize(foundJob.contract.name) === normalize("J & J Ward");
-        await prisma.$executeRaw`
-          UPDATE "Job"
-          SET
-            "status" = ${isJJWard ? "semi_completed" : "completed"},
-            "completedDate" = ${String(body.completedDate || "")},
-            "destinationSite" = ${String(body.destinationSite || "")},
-            "completeArrivalTime" = ${String(body.completeArrivalTime || "")},
-            "completeDepartureTime" = ${String(body.completeDepartureTime || "")},
-            "completeJobRef" = ${String(body.completeJobRef || "")},
-            "destinationNotes" = ${String(body.destinationNotes || "")}
-          WHERE "id" = ${jobId}
-        `;
+        await prisma.job.update({
+          where: { id: jobId },
+          data: {
+            status: isJJWard ? "semi_completed" : "completed",
+            completedDate: String(body.completedDate || ""),
+            destinationSite: String(body.destinationSite || ""),
+            completeArrivalTime: String(body.completeArrivalTime || ""),
+            completeDepartureTime: String(body.completeDepartureTime || ""),
+            completeJobRef: String(body.completeJobRef || ""),
+            destinationNotes: String(body.destinationNotes || ""),
+          },
+        });
         break;
       }
       case "finalizeSemiCompletedJob": {
@@ -176,8 +157,6 @@ export async function POST(request: Request) {
         break;
       }
       case "saveMileage": {
-        await ensureMileageTable();
-
         const driver = await prisma.user.findUnique({ where: { id: String(body.driverId || "") } });
         if (!driver) {
           return NextResponse.json({ error: "Driver not found." }, { status: 400 });
@@ -194,33 +173,21 @@ export async function POST(request: Request) {
           return NextResponse.json({ error: "Opening or closing mileage is required." }, { status: 400 });
         }
 
-        const existing = await prisma.$queryRaw<
-          Array<{ id: string; reg: string; openingMileage: string | null; closingMileage: string | null }>
-        >`
-          SELECT "id", "reg", "openingMileage", "closingMileage"
-          FROM "MileageEntry"
-          WHERE "driverId" = ${driver.id} AND "date" = ${date}
-          LIMIT 1
-        `;
-
-        if (existing[0]) {
-          await prisma.$executeRaw`
-            UPDATE "MileageEntry"
-            SET
-              "reg" = ${String(body.reg || existing[0].reg || "")},
-              "openingMileage" = ${openingMileage || existing[0].openingMileage || null},
-              "closingMileage" = ${closingMileage || existing[0].closingMileage || null},
-              "updatedAt" = CURRENT_TIMESTAMP
-            WHERE "id" = ${existing[0].id}
-          `;
-        } else {
-          await prisma.$executeRaw`
-            INSERT INTO "MileageEntry"
-              ("id", "date", "reg", "openingMileage", "closingMileage", "driverId", "createdAt", "updatedAt")
-            VALUES
-              (${crypto.randomUUID()}, ${date}, ${String(body.reg || "")}, ${openingMileage || null}, ${closingMileage || null}, ${driver.id}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-          `;
-        }
+        await prisma.mileageEntry.upsert({
+          where: { driverId_date: { driverId: driver.id, date } },
+          create: {
+            date,
+            reg: String(body.reg || ""),
+            openingMileage: openingMileage || null,
+            closingMileage: closingMileage || null,
+            driverId: driver.id,
+          },
+          update: {
+            reg: String(body.reg || ""),
+            openingMileage: openingMileage || null,
+            closingMileage: closingMileage || null,
+          },
+        });
         break;
       }
       case "deleteFuelEntry": {
@@ -228,11 +195,7 @@ export async function POST(request: Request) {
         break;
       }
       case "deleteMileageEntry": {
-        await ensureMileageTable();
-        await prisma.$executeRaw`
-          DELETE FROM "MileageEntry"
-          WHERE "id" = ${String(body.mileageEntryId || "")}
-        `;
+        await prisma.mileageEntry.delete({ where: { id: String(body.mileageEntryId || "") } });
         break;
       }
       case "sendReport": {
@@ -259,8 +222,7 @@ export async function POST(request: Request) {
       case "resetWeek": {
         await prisma.job.deleteMany({ where: { OR: [{ status: "completed" }, { status: "semi_completed" }] } });
         await prisma.fuelEntry.deleteMany({});
-        await ensureMileageTable();
-        await prisma.$executeRaw`DELETE FROM "MileageEntry"`;
+        await prisma.mileageEntry.deleteMany({});
         await prisma.issueReport.deleteMany({});
         break;
       }
@@ -314,12 +276,11 @@ export async function POST(request: Request) {
           return NextResponse.json({ error: "Admin users cannot be removed." }, { status: 400 });
         }
 
-        await ensureMileageTable();
         await prisma.$transaction(async (tx) => {
           await tx.issueReport.deleteMany({ where: { driverId } });
           await tx.fuelEntry.deleteMany({ where: { driverId } });
           await tx.job.deleteMany({ where: { OR: [{ driverId }, { completedDriverId: driverId }] } });
-          await tx.$executeRaw`DELETE FROM "MileageEntry" WHERE "driverId" = ${driverId}`;
+          await tx.mileageEntry.deleteMany({ where: { driverId } });
           await tx.user.delete({ where: { id: driverId } });
         });
         break;

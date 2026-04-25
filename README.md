@@ -6,15 +6,15 @@ A Next.js + TypeScript project that includes:
 - Driver setup (contract, vehicle, date)
 - Driver flows for live jobs, completion, fuel entries, and issue reports
 - Admin hub with overview, driver management, site management, and driver folders
-- Central SQLite database storage via Prisma
+- Central MySQL database storage via Prisma
 - API routes for login and portal data/actions
 
 ## Run Locally
 
 ```bash
 npm install
-npx prisma generate
-npx prisma db push
+npm run db:generate
+npm run db:migrate
 npm run dev
 ```
 
@@ -30,13 +30,12 @@ npm run build
 
 ## Database
 
-- Local database: `dev.db`
 - Prisma schema: `prisma/schema.prisma`
 - Portal API routes:
 	- `app/api/login/route.ts`
 	- `app/api/portal/route.ts`
 
-Jobs, completed jobs, fuel entries, reports, drivers, and site/contract changes are now saved server-side in SQLite instead of browser local storage.
+Jobs, completed jobs, fuel entries, reports, drivers, and site/contract changes are saved server-side in MySQL instead of browser local storage.
 
 ## Test Credentials
 
@@ -49,4 +48,4 @@ Jobs, completed jobs, fuel entries, reports, drivers, and site/contract changes 
 - `components/ui/*` - local UI primitives used by the portal
 - `lib/portal-config.ts` - shared portal types and defaults
 - `lib/portal-server.ts` - Prisma-backed portal data shaping and initial seeding
-- `lib/prisma.ts` - Prisma client and SQLite adapter setup
+- `lib/prisma.ts` - Prisma client setup
