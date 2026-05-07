@@ -8,6 +8,61 @@ import {
   type PortalData,
 } from "@/lib/portal-config";
 
+type VehicleRegRow = {
+  reg: string;
+};
+
+type CountRow = {
+  count: bigint | number;
+};
+
+function countRowValue(row: CountRow | undefined) {
+  if (!row) return 0;
+  return typeof row.count === "bigint" ? Number(row.count) : row.count;
+}
+
+async function ensureVehicleRegStorage() {
+  await prisma.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS vehicle_reg (
+      id INT NOT NULL AUTO_INCREMENT,
+      reg VARCHAR(191) NOT NULL,
+      created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+      PRIMARY KEY (id),
+      UNIQUE KEY vehicle_reg_reg_key (reg)
+    )
+  `);
+
+  const countRows = await prisma.$queryRaw<CountRow[]>`SELECT COUNT(*) AS count FROM vehicle_reg`;
+  if (countRowValue(countRows[0]) > 0) {
+    return;
+  }
+
+  for (const reg of INITIAL_REGS) {
+    await prisma.$executeRaw`INSERT IGNORE INTO vehicle_reg (reg) VALUES (${reg})`;
+  }
+}
+
+export async function listVehicleRegs() {
+  await ensureVehicleRegStorage();
+  const rows = await prisma.$queryRaw<VehicleRegRow[]>`SELECT reg FROM vehicle_reg ORDER BY reg ASC`;
+  return rows.map((row) => row.reg);
+}
+
+export async function addVehicleReg(reg: string) {
+  await ensureVehicleRegStorage();
+  await prisma.$executeRaw`INSERT INTO vehicle_reg (reg) VALUES (${reg})`;
+}
+
+export async function updateVehicleReg(previousReg: string, nextReg: string) {
+  await ensureVehicleRegStorage();
+  await prisma.$executeRaw`UPDATE vehicle_reg SET reg = ${nextReg} WHERE reg = ${previousReg}`;
+}
+
+export async function removeVehicleReg(reg: string) {
+  await ensureVehicleRegStorage();
+  await prisma.$executeRaw`DELETE FROM vehicle_reg WHERE reg = ${reg}`;
+}
+
 export async function ensurePortalSeeded() {
   const userCount = await prisma.user.count();
   if (userCount > 0) {
@@ -46,6 +101,8 @@ export async function ensurePortalSeeded() {
 export async function getPortalData(): Promise<PortalData> {
   await ensurePortalSeeded();
 
+  const vehicleRegsPromise = listVehicleRegs();
+
   const [users, contracts, activeJobs, semiCompletedJobs, completedJobs, fuelEntries, mileageEntries, issueReports] = await Promise.all([
     prisma.user.findMany({ orderBy: [{ role: "asc" }, { name: "asc" }] }),
     prisma.contract.findMany({ include: { sites: { orderBy: { name: "asc" } } }, orderBy: { name: "asc" } }),
@@ -68,6 +125,7 @@ export async function getPortalData(): Promise<PortalData> {
     prisma.mileageEntry.findMany({ include: { driver: true }, orderBy: { date: "desc" } }),
     prisma.issueReport.findMany({ include: { driver: true, contract: true }, orderBy: { createdAt: "desc" } }),
   ]);
+  const vehicleRegs = await vehicleRegsPromise;
 
   return {
     users: users.map((user) => ({
@@ -78,7 +136,7 @@ export async function getPortalData(): Promise<PortalData> {
       role: user.role,
     })),
     contracts: contracts.map((contract) => contract.name),
-    vehicleRegs: INITIAL_REGS,
+    vehicleRegs,
     sitesByContract: Object.fromEntries(
       contracts.map((contract) => [
         contract.name,

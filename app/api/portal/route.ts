@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getPortalData } from "@/lib/portal-server";
+import { addVehicleReg, getPortalData, removeVehicleReg, updateVehicleReg } from "@/lib/portal-server";
 import { normalize, normalizeSiteType } from "@/lib/portal-config";
 
 async function findContractByName(name: string) {
@@ -309,6 +309,31 @@ export async function POST(request: Request) {
             contractId: contract.id,
           },
         });
+        break;
+      }
+      case "addVehicle": {
+        const reg = String(body.reg || "").trim();
+        if (!reg) {
+          return NextResponse.json({ error: "Vehicle registration is required." }, { status: 400 });
+        }
+        await addVehicleReg(reg);
+        break;
+      }
+      case "updateVehicle": {
+        const previousReg = String(body.previousReg || "").trim();
+        const nextReg = String(body.nextReg || "").trim();
+        if (!previousReg || !nextReg) {
+          return NextResponse.json({ error: "Current and new registration are required." }, { status: 400 });
+        }
+        await updateVehicleReg(previousReg, nextReg);
+        break;
+      }
+      case "removeVehicle": {
+        const reg = String(body.reg || "").trim();
+        if (!reg) {
+          return NextResponse.json({ error: "Vehicle registration is required." }, { status: 400 });
+        }
+        await removeVehicleReg(reg);
         break;
       }
       case "updateSiteType": {
